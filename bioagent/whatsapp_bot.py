@@ -277,7 +277,7 @@ async def handle_ai_response(user_number: str, user_text: str) -> None:
         )
 
         response = None
-        models_to_try = [GEMINI_MODEL, "models/gemini-2.0-flash"]
+        models_to_try = [GEMINI_MODEL, "models/gemini-2.0-flash-001"]
         
         for model_name in models_to_try:
             last_error = None
