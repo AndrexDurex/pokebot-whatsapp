@@ -238,7 +238,19 @@ async def handle_ai_response(user_number: str, user_text: str) -> None:
                 ),
             )
         )
+        
+        # response.text puede ser None si el modelo solo devolvió function calls sin texto final
         bot_reply = response.text
+        if not bot_reply:
+            # Intentar extraer texto de los candidates
+            try:
+                bot_reply = response.candidates[0].content.parts[0].text
+            except Exception:
+                bot_reply = None
+        
+        if not bot_reply:
+            logger.warning("⚠️ Gemini no devolvió texto. Posible función ejecutada sin respuesta final.")
+            bot_reply = "✅ Listo, acción realizada."
 
         # 4. Guardar historiales
         await asyncio.to_thread(memory.save_message, user_id, "user", user_text)
@@ -249,5 +261,7 @@ async def handle_ai_response(user_number: str, user_text: str) -> None:
         await send_whatsapp_message(user_number, bot_reply)
 
     except Exception as e:
-        logger.error(f"❌ Error en Gemini/WhatsApp: {e}")
+        import traceback
+        logger.error(f"❌ Error en Gemini/WhatsApp: {e}\n{traceback.format_exc()}")
         await send_whatsapp_message(user_number, "⚠️ Tuve un problema procesando tu consulta. Intenta de nuevo en un momento.")
+
