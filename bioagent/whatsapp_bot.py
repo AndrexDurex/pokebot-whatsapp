@@ -74,9 +74,9 @@ async def mark_item_done_tool(item_id: str) -> str:
     success = await asyncio.to_thread(tasks.complete_task, user_id, item_id)
     return f"Ítem {item_id} completado." if success else "No encontrado."
 
-async def add_calendar_event_tool(title: str, start_iso: str, end_iso: str, description: str = "", color_id: str = None, recurrence_rule: str = None) -> str:
-    created = await calendar_service.create_event_async(title, start_iso, end_iso, description, color_id, recurrence_rule)
-    return f"Evento '{title}' creado el {start_iso}." if created else "Error en Calendar."
+async def add_calendar_event_tool(title: str, start_iso: str, end_iso: str, description: str = "", color_id: str = None, recurrence_rule: str = None, calendar_type: str = "main") -> str:
+    created = await calendar_service.create_event_async(title, start_iso, end_iso, description, color_id, recurrence_rule, calendar_type)
+    return f"Evento '{title}' creado el {start_iso} en {calendar_type}." if created else "Error en Calendar."
 
 async def update_calendar_event_tool(event_id: str, title: str = None, start_iso: str = None, end_iso: str = None, description: str = None, color_id: str = None) -> str:
     result = await calendar_service.update_event_async(event_id, title, start_iso, end_iso, description, color_id)
@@ -157,9 +157,14 @@ OPENROUTER_TOOLS = [
                     "end_iso": {"type": "string"},
                     "description": {"type": "string"},
                     "color_id": {"type": "string"},
-                    "recurrence_rule": {"type": "string"}
+                    "recurrence_rule": {"type": "string"},
+                    "calendar_type": {
+                        "type": "string",
+                        "enum": ["main", "routine"],
+                        "description": "El calendario destino: 'main' para eventos, reuniones y Tesis. 'routine' para rutinas de salud o timeboxing."
+                    }
                 },
-                "required": ["title", "start_iso", "end_iso"]
+                "required": ["title", "start_iso", "end_iso", "calendar_type"]
             }
         }
     },

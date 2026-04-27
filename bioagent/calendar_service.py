@@ -42,10 +42,12 @@ def _get_service():
 
 # ── Lectura de eventos ─────────────────────────────────────────────────────────
 
+from bioagent.config import GOOGLE_CREDENTIALS_PATH, GOOGLE_CALENDAR_TOKEN_PATH, CALENDAR_ID, CALENDAR_ID_ROUTINES
+
 def get_upcoming_events(days: int = 7, max_results: int = 10) -> list[dict]:
     """
-    Retorna los próximos eventos del calendario.
-    Cada evento: {'id', 'title', 'start', 'end', 'description'}
+    Retorna los próximos eventos combinados de ambos calendarios (Principal y Rutinas).
+    Cada evento: {'id', 'title', 'start', 'end', 'description', 'calendar_type'}
     """
     service = _get_service()
     if not service:
@@ -54,33 +56,42 @@ def get_upcoming_events(days: int = 7, max_results: int = 10) -> list[dict]:
     try:
         now = datetime.now(timezone.utc)
         time_max = now + timedelta(days=days)
-
-        result = service.events().list(
-            calendarId=CALENDAR_ID,
-            timeMin=now.isoformat(),
-            timeMax=time_max.isoformat(),
-            maxResults=max_results,
-            singleEvents=True,
-            orderBy="startTime",
-        ).execute()
-
         events = []
-        for e in result.get("items", []):
-            start = e["start"].get("dateTime", e["start"].get("date", ""))
-            end = e["end"].get("dateTime", e["end"].get("date", ""))
-            events.append({
-                "id": e.get("id"),
-                "title": e.get("summary", "Sin título"),
-                "start": start,
-                "end": end,
-                "description": e.get("description", ""),
-                "color_id": e.get("colorId", ""),
-            })
-        return events
+
+        for cal_id, cal_type in [(CALENDAR_ID, "main"), (CALENDAR_ID_ROUTINES, "routine")]:
+            if not cal_id or cal_id == "primary" and cal_type == "routine":
+                continue # Skip if routines not configured
+            try:
+                result = service.events().list(
+                    calendarId=cal_id,
+                    timeMin=now.isoformat(),
+                    timeMax=time_max.isoformat(),
+                    maxResults=max_results,
+                    singleEvents=True,
+                    orderBy="startTime",
+                ).execute()
+
+                for e in result.get("items", []):
+                    start = e["start"].get("dateTime", e["start"].get("date", ""))
+                    end = e["end"].get("dateTime", e["end"].get("date", ""))
+                    events.append({
+                        "id": e.get("id"),
+                        "title": e.get("summary", "Sin título"),
+                        "start": start,
+                        "end": end,
+                        "description": e.get("description", ""),
+                        "color_id": e.get("colorId", ""),
+                        "calendar_type": cal_type
+                    })
+            except Exception as inner_e:
+                logger.warning(f"No se pudo leer el calendario {cal_type}: {inner_e}")
+                
+        # Sort combined events by start time
+        events.sort(key=lambda x: x["start"])
+        return events[:max_results]
     except Exception as e:
         logger.error(f"❌ get_upcoming_events error: {e}")
         return []
-
 
 def get_today_events() -> list[dict]:
     """Retorna los eventos de hoy."""
@@ -96,12 +107,11 @@ def create_event(
     description: str = "",
     color_id: Optional[str] = None,
     recurrence: Optional[str] = None,
+    calendar_type: str = "main",
 ) -> Optional[dict]:
     """
-    Crea un evento en el calendario.
-    color_id: '1'=Lavanda, '2'=Salvia, '4'=Flamingo(rosa), '5'=Banana,
-              '6'=Mandarina, '7'=Pavo real, '9'=Arándano, '11'=Tomate
-    recurrence: Opcional. Regla RRULE, ej: "RRULE:FREQ=DAILY" o "RRULE:FREQ=WEEKLY;BYDAY=MO,WE,FR"
+    Crea un evento en el calendario indicado.
+    calendar_type: 'main' o 'routine'
     """
     service = _get_service()
     if not service:
@@ -118,11 +128,13 @@ def create_event(
     if recurrence:
         event_body["recurrence"] = [recurrence]
 
+    target_cal = CALENDAR_ID_ROUTINES if calendar_type == "routine" else CALENDAR_ID
+
     try:
         created = service.events().insert(
-            calendarId=CALENDAR_ID, body=event_body
+            calendarId=target_cal, body=event_body
         ).execute()
-        logger.info(f"✅ Evento creado: {title} ({start_iso})")
+        logger.info(f"✅ Evento creado en {calendar_type}: {title} ({start_iso})")
         return created
     except Exception as e:
         logger.error(f"❌ create_event error: {e}")
@@ -130,17 +142,22 @@ def create_event(
 
 
 def delete_event(event_id: str) -> bool:
-    """Elimina un evento del calendario por ID."""
+    """Elimina un evento del calendario por ID (busca en ambos calendarios)."""
     service = _get_service()
     if not service:
         return False
     try:
         service.events().delete(calendarId=CALENDAR_ID, eventId=event_id).execute()
-        logger.info(f"✅ Evento eliminado: {event_id}")
+        logger.info(f"✅ Evento eliminado (main): {event_id}")
         return True
-    except Exception as e:
-        logger.error(f"❌ delete_event error: {e}")
-        return False
+    except Exception:
+        try:
+            service.events().delete(calendarId=CALENDAR_ID_ROUTINES, eventId=event_id).execute()
+            logger.info(f"✅ Evento eliminado (routine): {event_id}")
+            return True
+        except Exception as e2:
+            logger.error(f"❌ delete_event error en ambos: {e2}")
+            return False
 
 
 def update_event(
@@ -152,35 +169,37 @@ def update_event(
     color_id: Optional[str] = None,
 ) -> Optional[dict]:
     """
-    Modifica un evento existente en el calendario. Solo actualiza los campos que se pasen.
-    Ideal para reprogramar horarios, cambiar títulos o añadir descripciones.
+    Modifica un evento existente en el calendario (busca en ambos).
     """
     service = _get_service()
     if not service:
         return None
-    try:
-        # Obtener el evento actual para hacer patch (no sobrescribir todo)
-        existing = service.events().get(calendarId=CALENDAR_ID, eventId=event_id).execute()
         
-        if title:
-            existing["summary"] = title
-        if description is not None:
-            existing["description"] = description
-        if start_iso:
-            existing["start"] = {"dateTime": start_iso, "timeZone": "America/Lima"}
-        if end_iso:
-            existing["end"] = {"dateTime": end_iso, "timeZone": "America/Lima"}
-        if color_id:
-            existing["colorId"] = color_id
-
+    def _try_update(cal_id: str):
+        existing = service.events().get(calendarId=cal_id, eventId=event_id).execute()
+        if title: existing["summary"] = title
+        if description is not None: existing["description"] = description
+        if start_iso: existing["start"] = {"dateTime": start_iso, "timeZone": "America/Lima"}
+        if end_iso: existing["end"] = {"dateTime": end_iso, "timeZone": "America/Lima"}
+        if color_id: existing["colorId"] = color_id
+        
         updated = service.events().update(
-            calendarId=CALENDAR_ID, eventId=event_id, body=existing
+            calendarId=cal_id, eventId=event_id, body=existing
         ).execute()
-        logger.info(f"✅ Evento actualizado: {event_id}")
         return updated
-    except Exception as e:
-        logger.error(f"❌ update_event error: {e}")
-        return None
+
+    try:
+        updated = _try_update(CALENDAR_ID)
+        logger.info(f"✅ Evento actualizado (main): {event_id}")
+        return updated
+    except Exception:
+        try:
+            updated = _try_update(CALENDAR_ID_ROUTINES)
+            logger.info(f"✅ Evento actualizado (routine): {event_id}")
+            return updated
+        except Exception as e2:
+            logger.error(f"❌ update_event error en ambos: {e2}")
+            return None
 
 
 # ── Resumen para el agente ─────────────────────────────────────────────────────
@@ -195,9 +214,9 @@ def get_agenda_summary(days: int = 7) -> str:
     if not events:
         return f"📅 No hay eventos en los próximos {days} días."
 
-    # Separar rutinas (colorId=5 Banana) del resto
-    routines = [e for e in events if e.get("color_id") == "5"]
-    agenda = [e for e in events if e.get("color_id") != "5"]
+    # Separar rutinas del resto basándose en el calendar_type
+    routines = [e for e in events if e.get("calendar_type") == "routine"]
+    agenda = [e for e in events if e.get("calendar_type") != "routine"]
 
     def format_event(e):
         start = e["start"].replace("T", " ").split("+")[0][:16]
@@ -229,8 +248,8 @@ def get_agenda_summary(days: int = 7) -> str:
 async def get_agenda_summary_async(days: int = 7) -> str:
     return await asyncio.to_thread(get_agenda_summary, days)
 
-async def create_event_async(title, start_iso, end_iso, description="", color_id=None, recurrence=None):
-    return await asyncio.to_thread(create_event, title, start_iso, end_iso, description, color_id, recurrence)
+async def create_event_async(title, start_iso, end_iso, description="", color_id=None, recurrence=None, calendar_type="main"):
+    return await asyncio.to_thread(create_event, title, start_iso, end_iso, description, color_id, recurrence, calendar_type)
 
 async def update_event_async(event_id, title=None, start_iso=None, end_iso=None, description=None, color_id=None):
     return await asyncio.to_thread(update_event, event_id, title, start_iso, end_iso, description, color_id)
