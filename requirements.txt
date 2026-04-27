@@ -1,11 +1,13 @@
-# BioAgent — Dependencias de producción
-python-telegram-bot==22.1
+# PokeBot — Dependencias de producción
+# Torch CPU-only (evita descargar 2GB de CUDA)
+--extra-index-url https://download.pytorch.org/whl/cpu
+torch
+
 google-genai
 firebase-admin==7.2.0
 google-api-python-client
 google-auth-oauthlib
 google-auth-httplib2
-APScheduler==3.11.2
 sentence-transformers
 numpy
 PyGithub==2.8.1
