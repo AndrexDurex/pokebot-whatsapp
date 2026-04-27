@@ -192,6 +192,42 @@ def delete_calendar_event_tool(event_id: str) -> str:
     except Exception as e:
         return f"Error interno de Calendar: {e}"
 
+def update_calendar_event_tool(
+    event_id: str,
+    title: str = None,
+    start_iso: str = None,
+    end_iso: str = None,
+    description: str = None,
+    color_id: str = None,
+) -> str:
+    """
+    Modifica un evento existente en Google Calendar. Solo actualiza los campos que se especifiquen.
+    Úsalo para reprogramar horarios, renombrar eventos o cambiar descripciones.
+    Primero obtén el ID del evento desde el resumen de la agenda.
+    
+    Args:
+        event_id: El ID del evento a modificar (lo ves en el resumen de agenda).
+        title: Nuevo título del evento (opcional).
+        start_iso: Nueva fecha/hora de inicio en ISO (ej: '2026-04-28T10:00:00') (opcional).
+        end_iso: Nueva fecha/hora de fin en ISO (ej: '2026-04-28T11:00:00') (opcional).
+        description: Nueva descripción del evento (opcional).
+        color_id: Nuevo color ('1'=Lavanda, '4'=Rosa, '8'=Grafito, '11'=Tomate) (opcional).
+    """
+    try:
+        result = calendar_service.update_event(
+            event_id=event_id,
+            title=title,
+            start_iso=start_iso,
+            end_iso=end_iso,
+            description=description,
+            color_id=color_id,
+        )
+        if result:
+            return f"Evento '{result.get('summary', event_id)}' actualizado exitosamente."
+        return "Error al actualizar el evento en Google Calendar."
+    except Exception as e:
+        return f"Error interno de Calendar: {e}"
+
 async def handle_ai_response(user_number: str, user_text: str) -> None:
     """Invoca la inteligencia y envía de vuelta a WhatsApp."""
     global _gemini_model
@@ -234,7 +270,13 @@ async def handle_ai_response(user_number: str, user_text: str) -> None:
                 contents=all_contents,
                 config=types.GenerateContentConfig(
                     system_instruction=SYSTEM_PROMPT,
-                    tools=[add_item_tool, mark_item_done_tool, add_calendar_event_tool, delete_calendar_event_tool],
+                    tools=[
+                        add_item_tool,
+                        mark_item_done_tool,
+                        add_calendar_event_tool,
+                        update_calendar_event_tool,
+                        delete_calendar_event_tool,
+                    ],
                 ),
             )
         )

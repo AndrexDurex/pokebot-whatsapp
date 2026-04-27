@@ -138,6 +138,46 @@ def delete_event(event_id: str) -> bool:
         return False
 
 
+def update_event(
+    event_id: str,
+    title: Optional[str] = None,
+    start_iso: Optional[str] = None,
+    end_iso: Optional[str] = None,
+    description: Optional[str] = None,
+    color_id: Optional[str] = None,
+) -> Optional[dict]:
+    """
+    Modifica un evento existente en el calendario. Solo actualiza los campos que se pasen.
+    Ideal para reprogramar horarios, cambiar títulos o añadir descripciones.
+    """
+    service = _get_service()
+    if not service:
+        return None
+    try:
+        # Obtener el evento actual para hacer patch (no sobrescribir todo)
+        existing = service.events().get(calendarId=CALENDAR_ID, eventId=event_id).execute()
+        
+        if title:
+            existing["summary"] = title
+        if description is not None:
+            existing["description"] = description
+        if start_iso:
+            existing["start"] = {"dateTime": start_iso, "timeZone": "America/Lima"}
+        if end_iso:
+            existing["end"] = {"dateTime": end_iso, "timeZone": "America/Lima"}
+        if color_id:
+            existing["colorId"] = color_id
+
+        updated = service.events().update(
+            calendarId=CALENDAR_ID, eventId=event_id, body=existing
+        ).execute()
+        logger.info(f"✅ Evento actualizado: {event_id}")
+        return updated
+    except Exception as e:
+        logger.error(f"❌ update_event error: {e}")
+        return None
+
+
 # ── Resumen para el agente ─────────────────────────────────────────────────────
 
 def get_agenda_summary(days: int = 7) -> str:
@@ -170,6 +210,9 @@ async def get_agenda_summary_async(days: int = 7) -> str:
 
 async def create_event_async(title, start_iso, end_iso, description="", color_id=None):
     return await asyncio.to_thread(create_event, title, start_iso, end_iso, description, color_id)
+
+async def update_event_async(event_id, title=None, start_iso=None, end_iso=None, description=None, color_id=None):
+    return await asyncio.to_thread(update_event, event_id, title, start_iso, end_iso, description, color_id)
 
 async def get_today_events_async() -> list[dict]:
     return await asyncio.to_thread(get_today_events)
