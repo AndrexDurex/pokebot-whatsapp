@@ -269,6 +269,7 @@ async def handle_ai_response(user_number: str, user_text: str) -> None:
             
             if not msg.tool_calls:
                 bot_reply = msg.content
+                logger.info(f"🧠 OpenRouter seleccionó el modelo: {response.model}")
                 break
             
             # Ejecutar herramientas
