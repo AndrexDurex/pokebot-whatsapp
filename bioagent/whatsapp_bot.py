@@ -6,7 +6,8 @@ import asyncio
 import logging
 import socket
 import aiohttp
-from typing import Dict, Any
+from datetime import datetime, timezone, timedelta
+from typing import Dict, Any, Optional
 
 from bioagent.config import (
     WHATSAPP_TOKEN, WHATSAPP_PHONE_ID, BOT_NAME, SYSTEM_PROMPT, 
