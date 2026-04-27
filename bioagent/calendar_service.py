@@ -74,6 +74,7 @@ def get_upcoming_events(days: int = 7, max_results: int = 10) -> list[dict]:
                 "start": start,
                 "end": end,
                 "description": e.get("description", ""),
+                "color_id": e.get("colorId", ""),
             })
         return events
     except Exception as e:
@@ -183,24 +184,40 @@ def update_event(
 def get_agenda_summary(days: int = 7) -> str:
     """
     Retorna un texto con el resumen de la agenda para inyectar al prompt.
+    Separa las rutinas fijas (color Banana/5) de los eventos regulares.
     Incluye el ID del evento para que Gemini pueda modificarlo o borrarlo.
     """
     events = get_upcoming_events(days=days)
     if not events:
         return f"📅 No hay eventos en los próximos {days} días."
 
-    lines = [f"📅 **Agenda próximos {days} días:**\n"]
-    for e in events:
+    # Separar rutinas (colorId=5 Banana) del resto
+    routines = [e for e in events if e.get("color_id") == "5"]
+    agenda = [e for e in events if e.get("color_id") != "5"]
+
+    def format_event(e):
         start = e["start"].replace("T", " ").split("+")[0][:16]
         end = e["end"].replace("T", " ").split("+")[0][11:16] if "T" in e["end"] else ""
         event_id = e.get("id", "sin-id")
-        
-        time_str = f"{start} a {end}" if end else start
-        lines.append(f"• {time_str} — {e['title']} (ID: {event_id})")
+        time_str = f"{start} → {end}" if end else start
+        line = f"• {time_str} — {e['title']} (ID: {event_id})"
         if e["description"]:
-            lines.append(f"  _{e['description'][:80]}_")
+            line += f"\n  _{e['description'][:80]}_"
+        return line
 
-    return "\n".join(lines)
+    lines = []
+    
+    if agenda:
+        lines.append(f"📅 *Agenda próximos {days} días:*")
+        lines.extend(format_event(e) for e in agenda)
+    
+    if routines:
+        if lines:
+            lines.append("")
+        lines.append("🔄 *Rutinas fijas:*")
+        lines.extend(format_event(e) for e in routines)
+
+    return "\n".join(lines) if lines else f"📅 No hay eventos en los próximos {days} días."
 
 
 # ── Async wrappers ─────────────────────────────────────────────────────────────
