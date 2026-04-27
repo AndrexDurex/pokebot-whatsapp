@@ -95,11 +95,13 @@ def create_event(
     end_iso: str,
     description: str = "",
     color_id: Optional[str] = None,
+    recurrence: Optional[str] = None,
 ) -> Optional[dict]:
     """
     Crea un evento en el calendario.
     color_id: '1'=Lavanda, '2'=Salvia, '4'=Flamingo(rosa), '5'=Banana,
               '6'=Mandarina, '7'=Pavo real, '9'=Arándano, '11'=Tomate
+    recurrence: Opcional. Regla RRULE, ej: "RRULE:FREQ=DAILY" o "RRULE:FREQ=WEEKLY;BYDAY=MO,WE,FR"
     """
     service = _get_service()
     if not service:
@@ -113,6 +115,8 @@ def create_event(
     }
     if color_id:
         event_body["colorId"] = color_id
+    if recurrence:
+        event_body["recurrence"] = [recurrence]
 
     try:
         created = service.events().insert(
@@ -225,8 +229,8 @@ def get_agenda_summary(days: int = 7) -> str:
 async def get_agenda_summary_async(days: int = 7) -> str:
     return await asyncio.to_thread(get_agenda_summary, days)
 
-async def create_event_async(title, start_iso, end_iso, description="", color_id=None):
-    return await asyncio.to_thread(create_event, title, start_iso, end_iso, description, color_id)
+async def create_event_async(title, start_iso, end_iso, description="", color_id=None, recurrence=None):
+    return await asyncio.to_thread(create_event, title, start_iso, end_iso, description, color_id, recurrence)
 
 async def update_event_async(event_id, title=None, start_iso=None, end_iso=None, description=None, color_id=None):
     return await asyncio.to_thread(update_event, event_id, title, start_iso, end_iso, description, color_id)

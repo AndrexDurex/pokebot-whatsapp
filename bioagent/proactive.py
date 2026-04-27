@@ -68,14 +68,26 @@ async def proactive_loop():
             # 2. Check-in Nocturno (9:00 PM)
             if now_local.hour == 21 and now_local.minute <= 10:
                 if not _night_check_done:
-                    # Traer tareas pendientes
+                    from bioagent import habits
+                    today_str = now_local.strftime("%Y-%m-%d")
+                    active_habits = await asyncio.to_thread(habits.get_habits, OWNER_PHONE_NUMBER)
                     pending = await asyncio.to_thread(tasks.get_tasks, OWNER_PHONE_NUMBER, True)
+                    
+                    msg_parts = ["🌙 *Check-in Nocturno:*"]
+                    
+                    if active_habits:
+                        msg_parts.append("\nEs hora de registrar tus hábitos de hoy. Responde a este mensaje indicando cuáles cumpliste:")
+                        for i, h in enumerate(active_habits, 1):
+                            msg_parts.append(f"{i}. {h['name']}")
+                            
                     if pending:
-                        msg = "🌙 *Check-in Nocturno:*\nVeo que tienes algunas tareas pendientes de hoy. ¿Quieres aplazarlas para mañana o las estás terminando?"
-                        await send_whatsapp_message(OWNER_PHONE_NUMBER, msg)
-                    else:
-                        msg = "🌙 *Check-in Nocturno:*\n¡Todo limpio por hoy! Descansa y prepárate para tu rutina de sueño."
-                        await send_whatsapp_message(OWNER_PHONE_NUMBER, msg)
+                        msg_parts.append("\nAdemás, tienes tareas pendientes de hoy. ¿Las aplazamos para mañana o las terminaste?")
+                        
+                    if not active_habits and not pending:
+                        msg_parts.append("\n¡Todo limpio por hoy! Descansa y prepárate para tu rutina de sueño.")
+                        
+                    msg = "\n".join(msg_parts)
+                    await send_whatsapp_message(OWNER_PHONE_NUMBER, msg)
                     _night_check_done = True
             elif now_local.hour < 21:
                 # Resetear el check-in nocturno para el próximo día

@@ -154,7 +154,7 @@ def mark_item_done_tool(item_id: str) -> str:
     except Exception as e:
         return f"Error interno: {e}"
 
-def add_calendar_event_tool(title: str, start_iso: str, end_iso: str, description: str = "", color_id: str = None) -> str:
+def add_calendar_event_tool(title: str, start_iso: str, end_iso: str, description: str = "", color_id: str = None, recurrence_rule: str = None) -> str:
     """
     Crea un bloque de tiempo (evento) en el Google Calendar del usuario.
     Úsalo para agendar rutinas, citas médicas, bloques de Tesis o recordatorios precisos.
@@ -166,10 +166,11 @@ def add_calendar_event_tool(title: str, start_iso: str, end_iso: str, descriptio
         end_iso: Fecha y hora de fin en formato ISO (ej: "2026-04-22T11:00:00").
         description: Detalles del evento, rutinas a seguir, listas de compras, etc.
         color_id: ID de color opcional ('1'=Lavanda, '4'=Rosa, '8'=Grafito, '11'=Tomate). Usa tomates para la Tesis.
+        recurrence_rule: Opcional. Regla RRULE de Google Calendar (ej. "RRULE:FREQ=DAILY" o "RRULE:FREQ=WEEKLY;BYDAY=MO,WE,FR").
     """
     try:
         # calendar_service ya es síncrono internamente para create_event
-        created = calendar_service.create_event(title, start_iso, end_iso, description, color_id)
+        created = calendar_service.create_event(title, start_iso, end_iso, description, color_id, recurrence_rule)
         if created:
             return f"Evento '{title}' creado exitosamente el {start_iso}."
         return "Error al crear el evento en Google Calendar."
@@ -228,6 +229,60 @@ def update_calendar_event_tool(
     except Exception as e:
         return f"Error interno de Calendar: {e}"
 
+from bioagent import habits
+
+def add_habit_tool(name: str) -> str:
+    """
+    Añade un nuevo hábito diario al sistema de seguimiento (tracker) del usuario.
+    
+    Args:
+        name: Nombre descriptivo del hábito (ej. 'Luz solar al despertar', 'Entrenamiento de Fuerza', 'Leer 10 páginas').
+    """
+    try:
+        user_id = _current_user_id.get()
+        result = habits.add_habit(user_id, name)
+        if result:
+            return f"Hábito '{name}' configurado para seguimiento diario. ID: {result}"
+        return "Error al añadir el hábito en la base de datos."
+    except Exception as e:
+        return f"Error interno: {e}"
+
+def remove_habit_tool(habit_id: str) -> str:
+    """
+    Elimina un hábito del sistema de seguimiento.
+    
+    Args:
+        habit_id: El ID único del hábito a eliminar.
+    """
+    try:
+        user_id = _current_user_id.get()
+        success = habits.remove_habit(user_id, habit_id)
+        if success:
+            return f"Hábito {habit_id} eliminado exitosamente."
+        return f"Error: No se encontró el hábito o no se pudo eliminar."
+    except Exception as e:
+        return f"Error interno: {e}"
+
+def log_habit_tool(habit_id: str, date_iso: str, completed: bool) -> str:
+    """
+    Registra si un hábito se cumplió (✅) o no (❌) en una fecha específica.
+    Usa esta herramienta cuando el usuario te rinda cuentas de sus hábitos en el check-in nocturno o en cualquier momento.
+    
+    Args:
+        habit_id: El ID único del hábito.
+        date_iso: Fecha en formato ISO (YYYY-MM-DD), ej: '2026-04-22'.
+        completed: True si el usuario cumplió el hábito, False si no lo cumplió.
+    """
+    try:
+        user_id = _current_user_id.get()
+        success = habits.log_habit(user_id, habit_id, date_iso, completed)
+        if success:
+            estado = "✅ Completado" if completed else "❌ No completado"
+            return f"Hábito {habit_id} registrado como {estado} para la fecha {date_iso}."
+        return "Error al registrar el hábito en la base de datos."
+    except Exception as e:
+        return f"Error interno: {e}"
+
 async def handle_ai_response(user_number: str, user_text: str) -> None:
     """Invoca la inteligencia y envía de vuelta a WhatsApp."""
     global _gemini_model
@@ -246,16 +301,22 @@ async def handle_ai_response(user_number: str, user_text: str) -> None:
         firebase_history = await asyncio.to_thread(memory.build_gemini_history, user_id)
         history = firebase_history if firebase_history else _conversation_history.get(user_id, [])
 
-        # 2. Contexto (RAG + Calendar + Tasks)
+        # 2. Contexto (RAG + Calendar + Tasks + Habits)
         rag_context = await asyncio.to_thread(rag.search, user_text)
         agenda_context = await calendar_service.get_agenda_summary_async(days=3)
         tasks_context = await asyncio.to_thread(tasks.get_tasks_summary, user_id)
+        
+        # Inyectar el resumen de hábitos de HOY
+        now_local = datetime.now(timezone.utc) - timedelta(hours=5)
+        today_date_str = now_local.strftime("%Y-%m-%d")
+        habits_context = await asyncio.to_thread(habits.get_habits_summary, user_id, today_date_str)
 
         # Construir prompt enriquecido
         parts = []
         if rag_context: parts.append(rag_context)
         if agenda_context: parts.append(agenda_context)
         if tasks_context: parts.append(tasks_context)
+        if habits_context: parts.append(habits_context)
         parts.append(f"## Consulta del usuario:\n{user_text}")
         enriched_prompt = "\n\n".join(parts)
 
@@ -273,6 +334,9 @@ async def handle_ai_response(user_number: str, user_text: str) -> None:
                 add_calendar_event_tool,
                 update_calendar_event_tool,
                 delete_calendar_event_tool,
+                add_habit_tool,
+                remove_habit_tool,
+                log_habit_tool,
             ],
         )
 
