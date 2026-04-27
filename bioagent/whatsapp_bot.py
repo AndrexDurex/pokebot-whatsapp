@@ -277,23 +277,39 @@ async def handle_ai_response(user_number: str, user_text: str) -> None:
         )
 
         response = None
-        for attempt in range(1, 4):  # hasta 3 intentos
-            try:
-                response = await asyncio.to_thread(
-                    lambda: _gemini_model.models.generate_content(
-                        model=GEMINI_MODEL,
-                        contents=all_contents,
-                        config=gemini_config,
+        models_to_try = [GEMINI_MODEL, "models/gemini-2.0-flash"]
+        
+        for model_name in models_to_try:
+            last_error = None
+            for attempt in range(1, 4):  # hasta 3 intentos por modelo
+                try:
+                    response = await asyncio.to_thread(
+                        lambda m=model_name: _gemini_model.models.generate_content(
+                            model=m,
+                            contents=all_contents,
+                            config=gemini_config,
+                        )
                     )
-                )
-                break  # éxito, salir del loop
-            except ServerError as se:
-                if attempt < 3 and "503" in str(se):
-                    wait = attempt * 3  # 3s, 6s
-                    logger.warning(f"⚠️ Gemini 503 (intento {attempt}/3), reintentando en {wait}s...")
-                    await asyncio.sleep(wait)
-                else:
-                    raise  # reraise si ya agotamos intentos o es otro error
+                    if model_name != GEMINI_MODEL:
+                        logger.info(f"✅ Respuesta exitosa con modelo fallback: {model_name}")
+                    break  # éxito
+                except ServerError as se:
+                    last_error = se
+                    if "503" in str(se):
+                        wait = attempt * 5  # 5s, 10s, 15s
+                        logger.warning(f"⚠️ Gemini 503 [{model_name}] intento {attempt}/3, reintentando en {wait}s...")
+                        await asyncio.sleep(wait)
+                    else:
+                        raise  # otro error, no reintentamos
+            
+            if response is not None:
+                break  # ya tenemos respuesta, salir del loop de modelos
+            
+            if model_name != models_to_try[-1]:
+                logger.warning(f"⚠️ {model_name} no disponible tras 3 intentos. Usando fallback...")
+        
+        if response is None:
+            raise last_error  # todos los modelos fallaron
         
         # response.text puede ser None si el modelo solo devolvió function calls sin texto final
         bot_reply = response.text
