@@ -19,7 +19,7 @@ GEMINI_MODEL: str = "models/gemini-2.5-flash"  # modelo disponible con esta API 
 
 # ── OpenRouter ────────────────────────────────────────────────────────────────
 OPENROUTER_API_KEY: str = os.getenv("OPENROUTER_API_KEY", "")
-OPENROUTER_MODEL: str = os.getenv("OPENROUTER_MODEL", "google/gemini-2.0-flash-exp:free")
+OPENROUTER_MODEL: str = os.getenv("OPENROUTER_MODEL", "openrouter/free")
 
 # ── Firebase / Firestore ──────────────────────────────────────────────────────
 FIREBASE_PROJECT_ID: str = os.getenv("FIREBASE_PROJECT_ID", "")
