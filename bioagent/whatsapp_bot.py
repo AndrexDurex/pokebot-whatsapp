@@ -259,27 +259,41 @@ async def handle_ai_response(user_number: str, user_text: str) -> None:
         parts.append(f"## Consulta del usuario:\n{user_text}")
         enriched_prompt = "\n\n".join(parts)
 
-        # 3. Invocar Gemini (google.genai SDK con function calling automático)
+        # 3. Invocar Gemini con reintentos para errores 503 de alta demanda
         from google.genai import types
-        
+        from google.genai.errors import ServerError
+
         all_contents = history + [{"role": "user", "parts": [{"text": enriched_prompt}]}]
-        
-        response = await asyncio.to_thread(
-            lambda: _gemini_model.models.generate_content(
-                model=GEMINI_MODEL,
-                contents=all_contents,
-                config=types.GenerateContentConfig(
-                    system_instruction=SYSTEM_PROMPT,
-                    tools=[
-                        add_item_tool,
-                        mark_item_done_tool,
-                        add_calendar_event_tool,
-                        update_calendar_event_tool,
-                        delete_calendar_event_tool,
-                    ],
-                ),
-            )
+
+        gemini_config = types.GenerateContentConfig(
+            system_instruction=SYSTEM_PROMPT,
+            tools=[
+                add_item_tool,
+                mark_item_done_tool,
+                add_calendar_event_tool,
+                update_calendar_event_tool,
+                delete_calendar_event_tool,
+            ],
         )
+
+        response = None
+        for attempt in range(1, 4):  # hasta 3 intentos
+            try:
+                response = await asyncio.to_thread(
+                    lambda: _gemini_model.models.generate_content(
+                        model=GEMINI_MODEL,
+                        contents=all_contents,
+                        config=gemini_config,
+                    )
+                )
+                break  # éxito, salir del loop
+            except ServerError as se:
+                if attempt < 3 and "503" in str(se):
+                    wait = attempt * 3  # 3s, 6s
+                    logger.warning(f"⚠️ Gemini 503 (intento {attempt}/3), reintentando en {wait}s...")
+                    await asyncio.sleep(wait)
+                else:
+                    raise  # reraise si ya agotamos intentos o es otro error
         
         # response.text puede ser None si el modelo solo devolvió function calls sin texto final
         bot_reply = response.text
