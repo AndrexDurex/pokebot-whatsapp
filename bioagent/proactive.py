@@ -93,6 +93,17 @@ async def proactive_loop():
                 # Resetear el check-in nocturno para el próximo día
                 _night_check_done = False
                 
+            # 2.5 Chequear Recordatorios Dinámicos (Fase 4)
+            from bioagent import reminders
+            pending_rems = await asyncio.to_thread(reminders.get_pending_reminders, OWNER_PHONE_NUMBER)
+            for r in pending_rems:
+                text = r.get("text", "")
+                r_id = r.get("id", "")
+                if text and r_id:
+                    msg = f"⏰ *Recordatorio:* {text}"
+                    await send_whatsapp_message(OWNER_PHONE_NUMBER, msg)
+                    await asyncio.to_thread(reminders.mark_reminder_sent, OWNER_PHONE_NUMBER, r_id)
+
             # Limpiar memoria de eventos viejos una vez al día (a la medianoche)
             if now_local.hour == 0 and now_local.minute <= 10:
                 _notified_events.clear()

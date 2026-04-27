@@ -102,6 +102,25 @@ async def log_habit_tool(habit_id: str, date_iso: str, completed: bool) -> str:
     status = "✅" if completed else "❌"
     return f"Hábito {habit_id} registrado como {status} para {date_iso}." if success else "Error."
 
+async def schedule_reminder_tool(text: str, trigger_iso: str) -> str:
+    from bioagent import reminders
+    user_id = _current_user_id.get()
+    rem_id = await asyncio.to_thread(reminders.add_reminder, user_id, text, trigger_iso)
+    return f"Recordatorio programado con ID {rem_id}." if rem_id else "Error al programar."
+
+async def update_profile_tool(action: str, key: str, value: str = None) -> str:
+    user_id = _current_user_id.get()
+    profile = await asyncio.to_thread(memory.get_profile, user_id)
+    if not profile: profile = {}
+    
+    if action == "add" or action == "update":
+        profile[key] = value
+    elif action == "delete" and key in profile:
+        del profile[key]
+        
+    success = await asyncio.to_thread(memory.save_profile, user_id, profile)
+    return f"Perfil actualizado: {key}={value}" if success else "Error al actualizar perfil."
+
 # Mapeo de funciones para ejecución dinámica
 AVAILABLE_TOOLS = {
     "add_item_tool": add_item_tool,
@@ -112,6 +131,8 @@ AVAILABLE_TOOLS = {
     "add_habit_tool": add_habit_tool,
     "remove_habit_tool": remove_habit_tool,
     "log_habit_tool": log_habit_tool,
+    "schedule_reminder_tool": schedule_reminder_tool,
+    "update_profile_tool": update_profile_tool,
 }
 
 # Definición de schemas para OpenRouter
@@ -226,6 +247,37 @@ OPENROUTER_TOOLS = [
                 "required": ["habit_id", "date_iso", "completed"]
             }
         }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "schedule_reminder_tool",
+            "description": "Programa un recordatorio que el bot enviará proactivamente en una fecha y hora exactas.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "text": {"type": "string", "description": "El texto del recordatorio."},
+                    "trigger_iso": {"type": "string", "description": "Fecha y hora exacta en formato ISO 8601 (ej. 2026-04-22T15:30:00-05:00)."}
+                },
+                "required": ["text", "trigger_iso"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "update_profile_tool",
+            "description": "Añade, actualiza o elimina información permanente en el perfil de memoria del usuario (ej. preferencias, alergias, rutinas base).",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "action": {"type": "string", "enum": ["add", "update", "delete"]},
+                    "key": {"type": "string", "description": "Una clave corta (ej. 'alergias', 'hora_dormir', 'odio_pescado')."},
+                    "value": {"type": "string", "description": "El valor. Omitir si action='delete'."}
+                },
+                "required": ["action", "key"]
+            }
+        }
     }
 ]
 
@@ -249,8 +301,14 @@ async def handle_ai_response(user_number: str, user_text: str) -> None:
         now_local = datetime.now(timezone.utc) - timedelta(hours=5)
         habits_context = await asyncio.to_thread(habits.get_habits_summary, user_id, now_local.strftime("%Y-%m-%d"))
 
+        profile_data = await asyncio.to_thread(memory.get_profile, user_id)
+        profile_context = ""
+        if profile_data:
+            profile_context = "## PERFIL PERMANENTE DEL USUARIO:\n" + "\n".join([f"- {k}: {v}" for k, v in profile_data.items()])
+
         # Construir prompt
         context_parts = []
+        if profile_context: context_parts.append(profile_context)
         if rag_context: context_parts.append(rag_context)
         if agenda_context: context_parts.append(agenda_context)
         if tasks_context: context_parts.append(tasks_context)
