@@ -128,6 +128,23 @@ def build_gemini_history(user_id: int, n: int = 8) -> list[dict]:
         if m.get("role") in ("user", "model") and m.get("text")
     ]
 
+def build_openrouter_history(user_id: int, n: int = 10) -> list[dict]:
+    """
+    Convierte el historial de RTDB al formato OpenAI (OpenRouter):
+    [{'role': 'user'|'assistant', 'content': '...'}, ...]
+    """
+    msgs = get_recent_history(user_id, n)
+    history = []
+    for m in msgs:
+        role = m["role"]
+        # Convertir 'model' (Gemini) a 'assistant' (OpenAI)
+        if role == "model":
+            role = "assistant"
+        
+        if role in ("user", "assistant") and m.get("text"):
+            history.append({"role": role, "content": m["text"]})
+    return history
+
 
 def _trim_history(user_id: int) -> None:
     """Elimina mensajes más antiguos si se supera MAX_HISTORY."""

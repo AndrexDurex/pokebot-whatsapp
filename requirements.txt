@@ -3,6 +3,7 @@
 --extra-index-url https://download.pytorch.org/whl/cpu
 torch
 
+openai
 google-genai
 firebase-admin==7.2.0
 google-api-python-client
