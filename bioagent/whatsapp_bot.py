@@ -17,7 +17,7 @@ from bioagent.config import (
     WHATSAPP_TOKEN, WHATSAPP_PHONE_ID, BOT_NAME, SYSTEM_PROMPT, 
     OPENROUTER_API_KEY, OPENROUTER_MODEL, OWNER_PHONE_NUMBER
 )
-from bioagent import rag, memory, calendar_service, tasks, habits
+from bioagent import rag, memory, calendar_service, tasks, habits, lists
 
 logger = logging.getLogger(__name__)
 
@@ -67,15 +67,38 @@ _current_user_id = contextvars.ContextVar('current_user_id')
 
 # ── Herramientas (Tools) ───────────────────────────────────────────────────────
 
-async def add_item_tool(title: str, priority: str = "media", category: str = "general") -> str:
+# --- Tareas (con prioridad y deadline) ---
+async def add_task_tool(title: str, priority: int = 3, category: str = "general", due_date: str = None) -> str:
     user_id = _current_user_id.get()
-    result = await asyncio.to_thread(tasks.add_task, user_id, title=title, priority=priority, category=category)
-    return f"Ítem '{title}' agregado con ID {result}" if result else "Error en Firebase."
+    result = await asyncio.to_thread(tasks.add_task, user_id, title=title, priority=priority, category=category, due_date=due_date)
+    p_emoji = tasks.PRIORITY_EMOJI.get(tasks._normalize_priority(priority), "🟢")
+    return f"{p_emoji} Tarea '{title}' creada con ID {result}" if result else "Error en Firebase."
 
-async def mark_item_done_tool(item_id: str) -> str:
+async def complete_task_tool(task_id: str) -> str:
     user_id = _current_user_id.get()
-    success = await asyncio.to_thread(tasks.complete_task, user_id, item_id)
-    return f"Ítem {item_id} completado." if success else "No encontrado."
+    success = await asyncio.to_thread(tasks.complete_task, user_id, task_id)
+    return f"✅ Tarea {task_id} completada." if success else "No encontrada."
+
+# --- Listas simples (compras, hogar, farmacia, etc.) ---
+async def add_list_item_tool(category: str, name: str) -> str:
+    user_id = _current_user_id.get()
+    result = await asyncio.to_thread(lists.add_item, user_id, category, name)
+    return f"'{name}' agregado a lista [{category}] con ID {result}" if result else "Error en Firebase."
+
+async def check_list_item_tool(category: str, item_id: str) -> str:
+    user_id = _current_user_id.get()
+    success = await asyncio.to_thread(lists.check_item, user_id, category, item_id)
+    return f"✅ Ítem tachado de [{category}]." if success else "No encontrado."
+
+async def get_list_tool(category: str) -> str:
+    user_id = _current_user_id.get()
+    items = await asyncio.to_thread(lists.get_list, user_id, category)
+    if not items:
+        return f"La lista [{category}] está vacía."
+    lines = [f"📝 Lista *{category.upper()}*:"]
+    for i, item in enumerate(items, 1):
+        lines.append(f"{i}. {item['name']} (ID: {item['id']})")
+    return "\n".join(lines)
 
 async def add_calendar_event_tool(title: str, start_iso: str, end_iso: str, description: str = "", color_id: str = None, recurrence_rule: str = None, calendar_type: str = "main") -> str:
     created = await calendar_service.create_event_async(title, start_iso, end_iso, description, color_id, recurrence_rule, calendar_type)
@@ -126,8 +149,11 @@ async def update_profile_tool(action: str, key: str, value: str = None) -> str:
 
 # Mapeo de funciones para ejecución dinámica
 AVAILABLE_TOOLS = {
-    "add_item_tool": add_item_tool,
-    "mark_item_done_tool": mark_item_done_tool,
+    "add_task_tool": add_task_tool,
+    "complete_task_tool": complete_task_tool,
+    "add_list_item_tool": add_list_item_tool,
+    "check_list_item_tool": check_list_item_tool,
+    "get_list_tool": get_list_tool,
     "add_calendar_event_tool": add_calendar_event_tool,
     "update_calendar_event_tool": update_calendar_event_tool,
     "delete_calendar_event_tool": delete_calendar_event_tool,
@@ -140,17 +166,19 @@ AVAILABLE_TOOLS = {
 
 # Definición de schemas para OpenRouter
 OPENROUTER_TOOLS = [
+    # --- TAREAS (pendientes con prioridad y deadline) ---
     {
         "type": "function",
         "function": {
-            "name": "add_item_tool",
-            "description": "Agrega una tarea o ítem a una lista.",
+            "name": "add_task_tool",
+            "description": "Crea una TAREA con prioridad y fecha límite. Usa esto para pendientes, entregas, proyectos. NO para listas de compras.",
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "title": {"type": "string"},
-                    "priority": {"type": "string", "enum": ["alta", "media", "baja"]},
-                    "category": {"type": "string"}
+                    "title": {"type": "string", "description": "Título de la tarea."},
+                    "priority": {"type": "integer", "enum": [1, 2, 3], "description": "1=Urgente, 2=Importante, 3=Normal (default)."},
+                    "category": {"type": "string", "description": "Categoría: tesis, lab, general, pagos, etc."},
+                    "due_date": {"type": "string", "description": "Fecha límite en formato YYYY-MM-DD."}
                 },
                 "required": ["title"]
             }
@@ -159,12 +187,57 @@ OPENROUTER_TOOLS = [
     {
         "type": "function",
         "function": {
-            "name": "mark_item_done_tool",
+            "name": "complete_task_tool",
             "description": "Marca una tarea como completada usando su ID.",
             "parameters": {
                 "type": "object",
-                "properties": {"item_id": {"type": "string"}},
-                "required": ["item_id"]
+                "properties": {"task_id": {"type": "string"}},
+                "required": ["task_id"]
+            }
+        }
+    },
+    # --- LISTAS (ítems simples: compras, hogar, farmacia, etc.) ---
+    {
+        "type": "function",
+        "function": {
+            "name": "add_list_item_tool",
+            "description": "Agrega un ítem a una LISTA simple (compras, hogar, farmacia, etc.). Usa esto para cosas que se compran o se tachan, NO para tareas con deadline.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "category": {"type": "string", "description": "Nombre de la lista: compras, hogar, farmacia, etc."},
+                    "name": {"type": "string", "description": "Nombre del ítem a agregar."}
+                },
+                "required": ["category", "name"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "check_list_item_tool",
+            "description": "Tacha/marca como comprado un ítem de una lista usando su ID.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "category": {"type": "string", "description": "Nombre de la lista."},
+                    "item_id": {"type": "string", "description": "ID del ítem a tachar."}
+                },
+                "required": ["category", "item_id"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_list_tool",
+            "description": "Muestra todos los ítems pendientes de una lista específica.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "category": {"type": "string", "description": "Nombre de la lista: compras, hogar, farmacia, etc."}
+                },
+                "required": ["category"]
             }
         }
     },
@@ -300,6 +373,7 @@ async def handle_ai_response(user_number: str, user_text: str) -> None:
         rag_context = await asyncio.to_thread(rag.search, user_text)
         agenda_context = await calendar_service.get_agenda_summary_async(days=3)
         tasks_context = await asyncio.to_thread(tasks.get_tasks_summary, user_id)
+        lists_context = await asyncio.to_thread(lists.get_lists_summary, user_id)
         
         now_local = datetime.now(timezone.utc) - timedelta(hours=5)
         habits_context = await asyncio.to_thread(habits.get_habits_summary, user_id, now_local.strftime("%Y-%m-%d"))
@@ -315,6 +389,7 @@ async def handle_ai_response(user_number: str, user_text: str) -> None:
         if rag_context: context_parts.append(rag_context)
         if agenda_context: context_parts.append(agenda_context)
         if tasks_context: context_parts.append(tasks_context)
+        if lists_context: context_parts.append(lists_context)
         if habits_context: context_parts.append(habits_context)
         
         system_msg = f"{SYSTEM_PROMPT}\n\nCONTEXTO ACTUAL:\n" + "\n\n".join(context_parts)
