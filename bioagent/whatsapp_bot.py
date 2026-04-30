@@ -17,7 +17,7 @@ from bioagent.config import (
     WHATSAPP_TOKEN, WHATSAPP_PHONE_ID, BOT_NAME, SYSTEM_PROMPT, 
     OPENROUTER_API_KEY, OPENROUTER_MODEL, OWNER_PHONE_NUMBER
 )
-from bioagent import rag, memory, calendar_service, tasks, habits, lists
+from bioagent import rag, memory, calendar_service, tasks, habits, lists, team_members
 
 logger = logging.getLogger(__name__)
 
@@ -358,10 +358,11 @@ OPENROUTER_TOOLS = [
 ]
 
 async def handle_ai_response(user_number: str, user_text: str) -> None:
-    """Invoca OpenRouter con soporte para Function Calling."""
+    """Invoca OpenRouter con soporte para Function Calling. Multi-usuario."""
     global _ai_client
     user_id = user_number
     _current_user_id.set(user_id)
+    member_name = team_members.get_member_name(user_number)
     
     try:
         if _ai_client is None:
@@ -392,7 +393,7 @@ async def handle_ai_response(user_number: str, user_text: str) -> None:
         if lists_context: context_parts.append(lists_context)
         if habits_context: context_parts.append(habits_context)
         
-        system_msg = f"{SYSTEM_PROMPT}\n\nCONTEXTO ACTUAL:\n" + "\n\n".join(context_parts)
+        system_msg = f"{SYSTEM_PROMPT}\n\nUSUARIO ACTUAL: {member_name}\n\nCONTEXTO ACTUAL:\n" + "\n\n".join(context_parts)
         
         messages = [{"role": "system", "content": system_msg}] + history + [{"role": "user", "content": user_text}]
 
@@ -457,7 +458,11 @@ async def handle_ai_response(user_number: str, user_text: str) -> None:
         await send_whatsapp_message(user_number, "⚠️ Tuve un problema con mi motor de IA. Intenta de nuevo.")
 
 async def process_whatsapp_message(body: Dict[str, Any]) -> None:
-    """Procesa el JSON entrante del webhook de WhatsApp."""
+    """
+    Procesa el JSON entrante del webhook de WhatsApp.
+    DEPRECATED: Usar router.route_message() en su lugar.
+    Se mantiene por compatibilidad con código antiguo.
+    """
     try:
         entry = body.get("entry", [])[0]
         changes = entry.get("changes", [])[0]
@@ -467,26 +472,8 @@ async def process_whatsapp_message(body: Dict[str, Any]) -> None:
         for msg in value["messages"]:
             if msg.get("type") != "text": continue
             
-            msg_id = msg.get("id")
-            if msg_id:
-                if msg_id in _processed_messages:
-                    logger.info(f"⏭️ Mensaje {msg_id} ya procesado. Ignorando duplicado de Meta.")
-                    continue
-                _processed_messages[msg_id] = time.time()
-                
-                # Limpiar cache de mensajes procesados si es muy grande (>1000) o más de 1 hora
-                if len(_processed_messages) > 1000:
-                    current_time = time.time()
-                    keys_to_delete = [k for k, v in _processed_messages.items() if current_time - v > 3600]
-                    for k in keys_to_delete:
-                        del _processed_messages[k]
-
             from_number = msg["from"]
             text_body = msg["text"]["body"]
-            
-            if OWNER_PHONE_NUMBER and not from_number.endswith(OWNER_PHONE_NUMBER[-8:]):
-                await send_whatsapp_message(from_number, "🔒 Acceso restringido.")
-                continue
 
             logger.info(f"📥 WhatsApp de {from_number}: {text_body[:30]}...")
             await handle_ai_response(from_number, text_body)

@@ -9,7 +9,7 @@ from dotenv import load_dotenv
 
 from bioagent.config import WHATSAPP_VERIFY_TOKEN
 from bioagent.startup import prepare_credentials
-from bioagent.whatsapp_bot import process_whatsapp_message
+from bioagent.router import route_message
 from bioagent import rag
 from bioagent import proactive
 
@@ -70,7 +70,7 @@ async def receive_message(request: Request):
     try:
         body = await request.json()
         # Lanzamos el procesamiento asíncrono para que Meta reciba un 200 rápido (exigen < 3s)
-        asyncio.create_task(process_whatsapp_message(body))
+        asyncio.create_task(route_message(body))
         return {"status": "success"}
     except Exception as e:
         logger.error(f"Error procesando webhook: {e}")
