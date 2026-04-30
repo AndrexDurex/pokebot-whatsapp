@@ -147,7 +147,23 @@ async def update_profile_tool(action: str, key: str, value: str = None) -> str:
     success = await asyncio.to_thread(memory.save_profile, user_id, profile)
     return f"Perfil actualizado: {key}={value}" if success else "Error al actualizar perfil."
 
-# Mapeo de funciones para ejecución dinámica
+async def send_reminder_to_member_tool(member_name: str, message: str) -> str:
+    """Envía un recordatorio/mensaje a otro miembro del equipo por DM."""
+    # Buscar el número por nombre
+    target_phone = None
+    for phone, data in team_members.AUTHORIZED_MEMBERS.items():
+        if data["name"].lower() == member_name.lower().strip():
+            target_phone = phone
+            break
+    if not target_phone:
+        return f"No encontré al miembro '{member_name}'."
+    
+    sender_id = _current_user_id.get()
+    sender_name = team_members.get_member_name(sender_id)
+    dm_msg = f"📩 *Mensaje de {sender_name}:*\n{message}"
+    await send_whatsapp_message(target_phone, dm_msg)
+    return f"✅ Mensaje enviado a {member_name} por privado."
+
 AVAILABLE_TOOLS = {
     "add_task_tool": add_task_tool,
     "complete_task_tool": complete_task_tool,
@@ -162,6 +178,7 @@ AVAILABLE_TOOLS = {
     "log_habit_tool": log_habit_tool,
     "schedule_reminder_tool": schedule_reminder_tool,
     "update_profile_tool": update_profile_tool,
+    "send_reminder_to_member_tool": send_reminder_to_member_tool,
 }
 
 # Definición de schemas para OpenRouter
@@ -352,6 +369,21 @@ OPENROUTER_TOOLS = [
                     "value": {"type": "string", "description": "El valor. Omitir si action='delete'."}
                 },
                 "required": ["action", "key"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "send_reminder_to_member_tool",
+            "description": "Envía un mensaje o recordatorio a otro miembro del equipo por chat privado. Útil para 'Recuérdale a Michelle que...', 'Dile a Joaquín que...'.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "member_name": {"type": "string", "description": "Nombre del miembro: André, Joaquín, Michelle o Daniela."},
+                    "message": {"type": "string", "description": "El mensaje o recordatorio a enviar."}
+                },
+                "required": ["member_name", "message"]
             }
         }
     }
