@@ -129,17 +129,17 @@ GOOGLE_CALENDAR_TOKEN_PATH: str = os.getenv(
 CALENDAR_ID: str = os.getenv("CALENDAR_ID", "primary")
 CALENDAR_ID_ROUTINES: str = os.getenv("CALENDAR_ID_ROUTINES", "558d7374cafb2bee725a0bacc2c7cc12468e1ae8c92e9e07a9c5895bf2893c60@group.calendar.google.com")
 
-# Calendar grupal del equipo de investigación
-# TODO: André debe crear un calendario de equipo (reuniones/hitos) y pegar el ID aquí
-CALENDAR_ID_TEAM: str = os.getenv("CALENDAR_ID_TEAM", "")
+# Calendar grupal del equipo de investigación (compartido con la cuenta principal de André)
+CALENDAR_ID_TEAM: str = os.getenv("CALENDAR_ID_TEAM", "quwi.investigacion@gmail.com")
 
 # Calendarios personales por usuario
-# Creados bajo la cuenta del grupo de investigación y compartidos con la cuenta principal de André
+# André usa sus calendarios existentes (main + routines) bajo su cuenta principal
+# Los otros 3 usan calendarios creados bajo la cuenta del grupo (quwi.investigacion@gmail.com)
+# y compartidos con la cuenta principal de André para que el bot tenga acceso
 USER_CALENDARS: dict = {
-    "51931048021": {   # André
+    "51931048021": {   # André — usa sus calendarios existentes
         "main": CALENDAR_ID,
         "routine": CALENDAR_ID_ROUTINES,
-        "research": "96be17976d2bffec9da75144435c9e78dcee97646a1cf5a089371b9500620adf@group.calendar.google.com",
     },
     "51975404354": {   # Joaquín
         "main": "755ad744616e1a092952878a2dde8f26e7d6989563408d3fd2ca2154a09b3b68@group.calendar.google.com",
@@ -151,3 +151,4 @@ USER_CALENDARS: dict = {
         "main": "d0ced0fd99737e78b3cf2783c75b9d5ddc028034c7002cb96a003ee337fb031f@group.calendar.google.com",
     },
 }
+
