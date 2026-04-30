@@ -17,7 +17,7 @@ from bioagent.config import (
     WHATSAPP_TOKEN, WHATSAPP_PHONE_ID, BOT_NAME, SYSTEM_PROMPT, 
     OPENROUTER_API_KEY, OPENROUTER_MODEL, OWNER_PHONE_NUMBER
 )
-from bioagent import rag, memory, calendar_service, tasks, habits, lists, team_members
+from bioagent import rag, memory, calendar_service, tasks, habits, lists, team_members, team_tasks
 
 logger = logging.getLogger(__name__)
 
@@ -372,7 +372,7 @@ async def handle_ai_response(user_number: str, user_text: str) -> None:
         # 1. Recuperar memoria y contexto
         history = await asyncio.to_thread(memory.build_openrouter_history, user_id)
         rag_context = await asyncio.to_thread(rag.search, user_text)
-        agenda_context = await calendar_service.get_agenda_summary_async(days=3)
+        agenda_context = await calendar_service.get_user_agenda_summary_async(user_id, days=3)
         tasks_context = await asyncio.to_thread(tasks.get_tasks_summary, user_id)
         lists_context = await asyncio.to_thread(lists.get_lists_summary, user_id)
         
@@ -392,6 +392,10 @@ async def handle_ai_response(user_number: str, user_text: str) -> None:
         if tasks_context: context_parts.append(tasks_context)
         if lists_context: context_parts.append(lists_context)
         if habits_context: context_parts.append(habits_context)
+        
+        # Tareas del equipo asignadas a este usuario
+        team_context = await asyncio.to_thread(team_tasks.get_team_tasks_summary_for_user, user_id)
+        if team_context: context_parts.append(team_context)
         
         system_msg = f"{SYSTEM_PROMPT}\n\nUSUARIO ACTUAL: {member_name}\n\nCONTEXTO ACTUAL:\n" + "\n\n".join(context_parts)
         

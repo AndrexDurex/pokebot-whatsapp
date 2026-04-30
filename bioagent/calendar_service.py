@@ -42,7 +42,7 @@ def _get_service():
 
 # ── Lectura de eventos ─────────────────────────────────────────────────────────
 
-from bioagent.config import GOOGLE_CREDENTIALS_PATH, GOOGLE_CALENDAR_TOKEN_PATH, CALENDAR_ID, CALENDAR_ID_ROUTINES
+from bioagent.config import GOOGLE_CREDENTIALS_PATH, GOOGLE_CALENDAR_TOKEN_PATH, CALENDAR_ID, CALENDAR_ID_ROUTINES, CALENDAR_ID_TEAM, USER_CALENDARS
 
 def get_upcoming_events(days: int = 7, max_results: int = 10) -> list[dict]:
     """
@@ -256,3 +256,173 @@ async def update_event_async(event_id, title=None, start_iso=None, end_iso=None,
 
 async def get_today_events_async() -> list[dict]:
     return await asyncio.to_thread(get_today_events)
+
+
+# ── Funciones Multi-usuario ────────────────────────────────────────────────────
+
+def get_user_upcoming_events(user_id: str, days: int = 3, max_results: int = 10) -> list[dict]:
+    """
+    Retorna los eventos de los calendarios personales de un usuario específico.
+    Usa el mapeo USER_CALENDARS de config.py.
+    """
+    service = _get_service()
+    if not service:
+        return []
+
+    user_cals = USER_CALENDARS.get(user_id, {})
+    if not user_cals:
+        return []
+
+    try:
+        now = datetime.now(timezone.utc)
+        time_max = now + timedelta(days=days)
+        events = []
+
+        for cal_type, cal_id in user_cals.items():
+            if not cal_id:
+                continue
+            try:
+                result = service.events().list(
+                    calendarId=cal_id,
+                    timeMin=now.isoformat(),
+                    timeMax=time_max.isoformat(),
+                    maxResults=max_results,
+                    singleEvents=True,
+                    orderBy="startTime",
+                ).execute()
+
+                for e in result.get("items", []):
+                    start = e["start"].get("dateTime", e["start"].get("date", ""))
+                    end = e["end"].get("dateTime", e["end"].get("date", ""))
+                    events.append({
+                        "id": e.get("id"),
+                        "title": e.get("summary", "Sin título"),
+                        "start": start,
+                        "end": end,
+                        "description": e.get("description", ""),
+                        "color_id": e.get("colorId", ""),
+                        "calendar_type": cal_type,
+                    })
+            except Exception as inner_e:
+                logger.warning(f"No se pudo leer calendario {cal_type} de {user_id}: {inner_e}")
+
+        events.sort(key=lambda x: x["start"])
+        return events[:max_results]
+    except Exception as e:
+        logger.error(f"❌ get_user_upcoming_events error: {e}")
+        return []
+
+
+def get_user_agenda_summary(user_id: str, days: int = 3) -> str:
+    """Resumen de agenda personal de un usuario para inyectar en el prompt."""
+    events = get_user_upcoming_events(user_id, days=days)
+    if not events:
+        return f"📅 No hay eventos en los próximos {days} días."
+
+    routines = [e for e in events if e.get("calendar_type") == "routine"]
+    agenda = [e for e in events if e.get("calendar_type") != "routine"]
+
+    def format_event(e):
+        start = e["start"].replace("T", " ").split("+")[0][:16]
+        end = e["end"].replace("T", " ").split("+")[0][11:16] if "T" in e["end"] else ""
+        event_id = e.get("id", "sin-id")
+        time_str = f"{start} → {end}" if end else start
+        line = f"• {time_str} — {e['title']} (ID: {event_id})"
+        if e["description"]:
+            line += f"\n  _{e['description'][:80]}_"
+        return line
+
+    lines = []
+    if agenda:
+        lines.append(f"📅 *Agenda próximos {days} días:*")
+        lines.extend(format_event(e) for e in agenda)
+    if routines:
+        if lines: lines.append("")
+        lines.append("🔄 *Rutinas fijas:*")
+        lines.extend(format_event(e) for e in routines)
+
+    return "\n".join(lines) if lines else f"📅 No hay eventos en los próximos {days} días."
+
+
+async def get_user_agenda_summary_async(user_id: str, days: int = 3) -> str:
+    return await asyncio.to_thread(get_user_agenda_summary, user_id, days)
+
+
+# ── Funciones del Equipo ───────────────────────────────────────────────────────
+
+def get_team_events(days: int = 7, max_results: int = 15) -> list[dict]:
+    """Retorna los eventos del calendario grupal del equipo."""
+    if not CALENDAR_ID_TEAM:
+        return []
+    service = _get_service()
+    if not service:
+        return []
+
+    try:
+        now = datetime.now(timezone.utc)
+        time_max = now + timedelta(days=days)
+        result = service.events().list(
+            calendarId=CALENDAR_ID_TEAM,
+            timeMin=now.isoformat(),
+            timeMax=time_max.isoformat(),
+            maxResults=max_results,
+            singleEvents=True,
+            orderBy="startTime",
+        ).execute()
+
+        events = []
+        for e in result.get("items", []):
+            start = e["start"].get("dateTime", e["start"].get("date", ""))
+            end = e["end"].get("dateTime", e["end"].get("date", ""))
+            events.append({
+                "id": e.get("id"),
+                "title": e.get("summary", "Sin título"),
+                "start": start,
+                "end": end,
+                "description": e.get("description", ""),
+                "calendar_type": "team",
+            })
+        return events
+    except Exception as e:
+        logger.error(f"❌ get_team_events error: {e}")
+        return []
+
+
+def create_team_event(
+    title: str,
+    start_iso: str,
+    end_iso: str,
+    description: str = "",
+) -> Optional[dict]:
+    """Crea un evento en el calendario grupal del equipo."""
+    if not CALENDAR_ID_TEAM:
+        logger.warning("⚠️ CALENDAR_ID_TEAM no configurado.")
+        return None
+    service = _get_service()
+    if not service:
+        return None
+
+    event_body = {
+        "summary": title,
+        "description": description,
+        "start": {"dateTime": start_iso, "timeZone": "America/Lima"},
+        "end": {"dateTime": end_iso, "timeZone": "America/Lima"},
+        "colorId": "9",  # Arándano para equipo
+    }
+
+    try:
+        created = service.events().insert(
+            calendarId=CALENDAR_ID_TEAM, body=event_body
+        ).execute()
+        logger.info(f"✅ Evento de equipo creado: {title} ({start_iso})")
+        return created
+    except Exception as e:
+        logger.error(f"❌ create_team_event error: {e}")
+        return None
+
+
+async def create_team_event_async(title, start_iso, end_iso, description=""):
+    return await asyncio.to_thread(create_team_event, title, start_iso, end_iso, description)
+
+async def get_team_events_async(days=7):
+    return await asyncio.to_thread(get_team_events, days)

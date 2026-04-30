@@ -15,7 +15,7 @@ import logging
 import time
 from typing import Dict, Any
 
-from bioagent import team_members, onboarding
+from bioagent import team_members, onboarding, team_bot, team_tasks
 from bioagent.whatsapp_bot import (
     handle_ai_response,
     send_whatsapp_message,
@@ -92,9 +92,8 @@ async def route_message(body: Dict[str, Any]) -> None:
                 # Solo responde si lo mencionan o usan palabras clave
                 if _should_respond_in_group(text_body):
                     logger.info(f"🏢 [{member_name}] en grupo: {text_body[:40]}...")
-                    # Fase 5: team_bot.handle_group_message(from_number, text_body, group_id)
-                    await send_whatsapp_message(from_number,
-                        "🏗️ El modo grupo está en construcción. Escríbeme por privado mientras tanto.")
+                    group_id = _get_group_id(msg, value)
+                    await team_bot.handle_group_message(from_number, text_body, group_id)
                 else:
                     # Ignora mensajes del grupo que no lo mencionan
                     logger.debug(f"💤 Mensaje de grupo ignorado (sin mención)")
@@ -158,3 +157,13 @@ def _should_respond_in_group(text: str) -> bool:
         "cómo vamos", "como vamos", "tablero", "asigna",
     ]
     return any(trigger in text_lower for trigger in triggers)
+
+
+def _get_group_id(msg: dict, value: dict) -> str:
+    """Extrae el group_id del mensaje de grupo."""
+    if "group_id" in msg:
+        return msg["group_id"]
+    context = msg.get("context", {})
+    if "group_id" in context:
+        return context["group_id"]
+    return ""
