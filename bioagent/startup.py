@@ -10,6 +10,8 @@ import logging
 import os
 from pathlib import Path
 
+from bioagent.config import GOOGLE_CALENDAR_TOKEN_PATH, FIREBASE_CREDENTIALS_PATH
+
 logger = logging.getLogger(__name__)
 
 
@@ -45,7 +47,7 @@ def prepare_credentials() -> None:
     """
     Prepara todos los archivos de credenciales necesarios.
     En local: no hace nada (ya existen).
-    En HF Spaces: los restaura desde los secrets.
+    En HF Spaces/Render: los restaura desde los secrets.
     """
-    _decode_secret_to_file("FIREBASE_CREDENTIALS_B64", "firebase-credentials.json")
-    _decode_secret_to_file("GOOGLE_CALENDAR_TOKEN_B64", "calendar_token.json")
+    _decode_secret_to_file("FIREBASE_CREDENTIALS_B64", FIREBASE_CREDENTIALS_PATH)
+    _decode_secret_to_file("GOOGLE_CALENDAR_TOKEN_B64", GOOGLE_CALENDAR_TOKEN_PATH)

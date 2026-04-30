@@ -2,6 +2,7 @@ import os
 import asyncio
 import logging
 import uvicorn
+from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request, HTTPException, Query
 from fastapi.responses import PlainTextResponse
 from dotenv import load_dotenv
@@ -18,18 +19,27 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-app = FastAPI(title="BioAgent WhatsApp Webhook")
+# Referencias globales para evitar garbage collection
+background_tasks = set()
 
-@app.on_event("startup")
-async def startup_event():
+@asynccontextmanager
+async def lifespan(app: FastAPI):
     logger.info("--- PREPARANDO CREDENCIALES ---")
     prepare_credentials()
     
     logger.info("🧠 Iniciando indexación RAG en segundo plano...")
-    asyncio.create_task(rag.build_index_async())
+    task1 = asyncio.create_task(rag.build_index_async())
+    background_tasks.add(task1)
+    task1.add_done_callback(background_tasks.discard)
     
     logger.info("🤖 Arrancando Motor Proactivo...")
-    asyncio.create_task(proactive.proactive_loop())
+    task2 = asyncio.create_task(proactive.proactive_loop())
+    background_tasks.add(task2)
+    task2.add_done_callback(background_tasks.discard)
+    
+    yield
+
+app = FastAPI(title="BioAgent WhatsApp Webhook", lifespan=lifespan)
 
 @app.get("/")
 def health_check():

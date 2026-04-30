@@ -107,7 +107,7 @@ GOOGLE_CREDENTIALS_PATH: str = os.getenv(
     "GOOGLE_CREDENTIALS_PATH", "calendar-credentials.json"
 )
 GOOGLE_CALENDAR_TOKEN_PATH: str = os.getenv(
-    "GOOGLE_CALENDAR_TOKEN_PATH", "calendar-token.json"
+    "GOOGLE_CALENDAR_TOKEN_PATH", "calendar_token.json"
 )
 CALENDAR_ID: str = os.getenv("CALENDAR_ID", "primary")
 CALENDAR_ID_ROUTINES: str = os.getenv("CALENDAR_ID_ROUTINES", "558d7374cafb2bee725a0bacc2c7cc12468e1ae8c92e9e07a9c5895bf2893c60@group.calendar.google.com")

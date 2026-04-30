@@ -9,6 +9,9 @@ import aiohttp
 import json
 from datetime import datetime, timezone, timedelta
 from typing import Dict, Any, Optional
+import time
+
+_processed_messages = {}
 
 from bioagent.config import (
     WHATSAPP_TOKEN, WHATSAPP_PHONE_ID, BOT_NAME, SYSTEM_PROMPT, 
@@ -320,12 +323,21 @@ async def handle_ai_response(user_number: str, user_text: str) -> None:
 
         # 2. Bucle de ejecución de IA + Herramientas
         for _ in range(5): # Max 5 saltos de herramientas
-            response = await _ai_client.chat.completions.create(
-                model=OPENROUTER_MODEL,
-                messages=messages,
-                tools=OPENROUTER_TOOLS,
-                tool_choice="auto"
-            )
+            for attempt in range(3):
+                try:
+                    response = await _ai_client.chat.completions.create(
+                        model=OPENROUTER_MODEL,
+                        messages=messages,
+                        tools=OPENROUTER_TOOLS,
+                        tool_choice="auto"
+                    )
+                    break
+                except Exception as e:
+                    if "Expecting value" in str(e) and attempt < 2:
+                        logger.warning(f"⚠️ OpenRouter falló con JSONDecodeError. Reintentando ({attempt+1}/3)...")
+                        await asyncio.sleep(2)
+                    else:
+                        raise
             
             msg = response.choices[0].message
             messages.append(msg)
@@ -379,6 +391,21 @@ async def process_whatsapp_message(body: Dict[str, Any]) -> None:
             
         for msg in value["messages"]:
             if msg.get("type") != "text": continue
+            
+            msg_id = msg.get("id")
+            if msg_id:
+                if msg_id in _processed_messages:
+                    logger.info(f"⏭️ Mensaje {msg_id} ya procesado. Ignorando duplicado de Meta.")
+                    continue
+                _processed_messages[msg_id] = time.time()
+                
+                # Limpiar cache de mensajes procesados si es muy grande (>1000) o más de 1 hora
+                if len(_processed_messages) > 1000:
+                    current_time = time.time()
+                    keys_to_delete = [k for k, v in _processed_messages.items() if current_time - v > 3600]
+                    for k in keys_to_delete:
+                        del _processed_messages[k]
+
             from_number = msg["from"]
             text_body = msg["text"]["body"]
             
